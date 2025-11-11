@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebNN Image Classification (MobileNetV2/NPU)</title>
+<script type="module">
+import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers';
+
+let classifier;
+let detectedObjects = new Set();
+
+async function loadModel() {
+  console.log("Loading MobileNet V2 model (WebNN/NPU)...");
+  classifier = await pipeline('image-classification', 'Xenova/mobilenet-v2', {
+    dtype: 'float32',             // Broad compatibility, NPU-supported
+    device: 'webnn-npu',          // Attempt NPU, fall back to WebNN if unavailable
+  });
+  console.log("Model Loaded!");
+}
+
+async function classifyFrame(videoElement) {
+  if (!classifier) return;
+  let canvas = document.createElement('canvas');
+  let ctx = canvas.getContext('2d');
+  canvas.width = videoElement.videoWidth;
+  canvas.height = videoElement.videoHeight;
+  ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+  let inputImage = canvas.toDataURL('image/jpeg');
+  const output = await classifier(inputImage);
+  detectedObjects.add(output[0].label);
+  console.log("Detected:", output[0].label);
+  if (detectedObjects.size >= 3) {
+    document.getElementById("detectObjectsBtn").style.display = "block";
+  }
+}
+
+function displayDetectedObjects() {
+  let outputDiv = document.getElementById("output");
+  outputDiv.innerHTML = "<h3>Detected Objects:</h3><ul>";
+  detectedObjects.forEach(obj => {
+    outputDiv.innerHTML += `<li>${obj}</li>`;
+  });
+  outputDiv.innerHTML += "</ul>";
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadModel();
+  let video = document.getElementById('videoPlayer');
+  video.muted = true;
+  video.play();
+  video.addEventListener('play', () => {
+    const classifyInterval = setInterval(() => {
+      if (!video.paused && !video.ended) {
+        classifyFrame(video);
+      } else {
+        clearInterval(classifyInterval);
+      }
+    }, 700);
+  });
+  document.getElementById('detectObjectsBtn').addEventListener('click', displayDetectedObjects);
+});
+</script>
+<style>
+body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
+h1, h2, h3 { color: #333; }
+.blog-content { max-width: 700px; }
+#detectObjectsBtn {
+  display: none;
+  padding: 10px 15px;
+  background: #008CBA;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 20px;
+}
+#output { margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="blog-content">
+<h1>WebNN Image Classification – MobileNetV2 (NPU)</h1>
+<p>
+This page uses <b>WebNN</b> and <b>MobileNetV2</b> to run fast image classification directly in your browser using your device's <b>NPU</b> if available.
+</p>
+<p>
+Detected objects will be shown as you play the video. After at least 3 unique objects are found, click the button below to reveal them!
+</p>
+<button id="detectObjectsBtn">Show Detected Objects</button>
+<div id="output"></div>
+</div>
+<!-- Hidden Video Playing in Background -->
+<video id="videoPlayer" style="display: none;" autoplay muted>
+  <source src="video3.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+</body>
+</html>
