@@ -41,7 +41,7 @@ async function initModel() {
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
 
-    const modelPath = './mobilenetv2-10.onnx';
+    const modelPath = './model.onnx';
     const options = {
         executionProviders: [
             { 
