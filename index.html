@@ -11,11 +11,16 @@ let classifier;
 let detectedObjects = new Set();
 
 async function loadModel() {
-  console.log("Loading MobileNet V2 model (WebNN/NPU)...");
-  classifier = await pipeline('image-classification', 'Xenova/mobilenet-v2', {
-    dtype: 'float32',             // Broad compatibility, NPU-supported
-    device: 'webnn-npu',          // Attempt NPU, fall back to WebNN if unavailable
-  });
+  console.log("Loading MobileNet V2 ONNX model (WebNN/NPU)...");
+  classifier = await pipeline(
+    'image-classification',
+    // This ONNX variant is public and browser-directable:
+    'Xenova/mobilenet-v2-onnx',
+    {
+      dtype: 'float32',         // Use float32 for max compatibility
+      device: 'webnn-npu',      // Prefer NPU (WebNN) if available; will fallback
+    }
+  );
   console.log("Model Loaded!");
 }
 
@@ -90,7 +95,6 @@ Detected objects will be shown as you play the video. After at least 3 unique ob
 <button id="detectObjectsBtn">Show Detected Objects</button>
 <div id="output"></div>
 </div>
-<!-- Hidden Video Playing in Background -->
 <video id="videoPlayer" style="display: none;" autoplay muted>
   <source src="https://genuine-marzipan-c4a520.netlify.app/video3.mp4" type="video/mp4">
   Your browser does not support the video tag.
