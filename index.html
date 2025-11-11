@@ -3,19 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebNN Image Classification Demo</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jimp/0.22.12/jimp.min.js" integrity="sha512-8xrUum7qKj8xbiUrOzDEJL5uLjpSIMxVevAM5pvBroaxJnxJGFsKaohQPmlzQP8rEoAxrAujWttTnx3AMgGIww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
-    <script src="./main.js"></script>
-    <script src="imagenetClasses.js"></script>
+    <title>WebNN Video Object Detection with NPU</title>
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0-dev.20240311-5479124834/dist/ort.webgpu.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #videoContainer {
+            position: relative;
+            display: inline-block;
+        }
+        #video {
+            max-width: 100%;
+            border: 2px solid #333;
+        }
+        #canvas {
+            display: none;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 5px;
+        }
+        .detection {
+            margin: 5px 0;
+            padding: 8px;
+            background: white;
+            border-radius: 3px;
+        }
+        #status {
+            margin-top: 10px;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
-    <main>
-        <h1>Image Classification Demo with WebNN (NPU)!</h1>
-        <div><img src="https://onlinejpgtools.com/images/examples-onlinejpgtools/sunflower.jpg"></div>
-        <button onclick="classifyImage('https://onlinejpgtools.com/images/examples-onlinejpgtools/sunflower.jpg')" type="button">Click Me to Classify Image!</button>
-        <h1 id="outputText">This image displayed is ...</h1>
-    </main>
+    <h1>Video Object Detection Demo with WebNN (NPU)!</h1>
+    <div id="videoContainer">
+        <video id="video" autoplay muted loop crossorigin="anonymous">
+            <source src="https://genuine-marzipan-c4a520.netlify.app/video3.mp4" type="video/mp4">
+        </video>
+        <canvas id="canvas"></canvas>
+    </div>
+    <div id="results">
+        <h2>Detected Objects:</h2>
+        <div id="detections"></div>
+        <div id="status">Initializing...</div>
+    </div>
+    <script src="./main.js"></script>
 </body>
 </html>
