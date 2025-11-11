@@ -1,102 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WebNN Image Classification (MobileNetV2/NPU)</title>
-<script type="module">
-import { pipeline } from './transformers.js';
-
-let classifier;
-let detectedObjects = new Set();
-
-async function loadModel() {
-  console.log("Loading MobileNet V2 ONNX model (WebNN/NPU) from local folder...");
-  classifier = await pipeline(
-    'image-classification',
-    './mobilenet-v2',    // Path to your model folder (relative to index.html)
-    {
-      dtype: 'float32',  // Use float32 for broad compatibility
-      device: 'webnn-npu',
-    }
-  );
-  console.log("Model Loaded!");
-}
-
-async function classifyFrame(videoElement) {
-  if (!classifier) return;
-  let canvas = document.createElement('canvas');
-  let ctx = canvas.getContext('2d');
-  canvas.width = videoElement.videoWidth;
-  canvas.height = videoElement.videoHeight;
-  ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-  let inputImage = canvas.toDataURL('image/jpeg');
-  const output = await classifier(inputImage);
-  detectedObjects.add(output[0].label);
-  console.log("Detected:", output[0].label);
-  if (detectedObjects.size >= 3) {
-    document.getElementById("detectObjectsBtn").style.display = "block";
-  }
-}
-
-function displayDetectedObjects() {
-  let outputDiv = document.getElementById("output");
-  outputDiv.innerHTML = "<h3>Detected Objects:</h3><ul>";
-  detectedObjects.forEach(obj => {
-    outputDiv.innerHTML += `<li>${obj}</li>`;
-  });
-  outputDiv.innerHTML += "</ul>";
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-  loadModel();
-  let video = document.getElementById('videoPlayer');
-  video.muted = true;
-  video.play();
-  video.addEventListener('play', () => {
-    const classifyInterval = setInterval(() => {
-      if (!video.paused && !video.ended) {
-        classifyFrame(video);
-      } else {
-        clearInterval(classifyInterval);
-      }
-    }, 700);
-  });
-  document.getElementById('detectObjectsBtn').addEventListener('click', displayDetectedObjects);
-});
-</script>
-<style>
-body { font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }
-h1, h2, h3 { color: #333; }
-.blog-content { max-width: 700px; }
-#detectObjectsBtn {
-  display: none;
-  padding: 10px 15px;
-  background: #008CBA;
-  color: white;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  margin-top: 20px;
-}
-#output { margin-top: 20px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebNN Image Classification Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jimp/0.22.12/jimp.min.js" integrity="sha512-8xrUum7qKj8xbiUrOzDEJL5uLjpSIMxVevAM5pvBroaxJnxJGFsKaohQPmlzQP8rEoAxrAujWttTnx3AMgGIww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+    <script src="./main.js"></script>
+    <script src="imagenetClasses.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0-dev.20240311-5479124834/dist/ort.webgpu.min.js"></script>
 </head>
 <body>
-<div class="blog-content">
-<h1>WebNN Image Classification – MobileNetV2 (NPU, Local)</h1>
-<p>
-This page uses <b>WebNN</b> and a local <b>MobileNetV2 ONNX</b> model to run fast image classification directly in your browser using your device's <b>NPU</b>.
-</p>
-<p>
-Detected objects will be shown as you play the video. After at least 3 unique objects are found, click the button below to reveal them!
-</p>
-<button id="detectObjectsBtn">Show Detected Objects</button>
-<div id="output"></div>
-</div>
-<video id="videoPlayer" style="display: none;" autoplay muted>
-  <source src="https://genuine-marzipan-c4a520.netlify.app/video3.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+    <main>
+        <h1>Image Classification Demo with WebNN (NPU)!</h1>
+        <div><img src="https://onlinejpgtools.com/images/examples-onlinejpgtools/sunflower.jpg"></div>
+        <button onclick="classifyImage('https://onlinejpgtools.com/images/examples-onlinejpgtools/sunflower.jpg')" type="button">Click Me to Classify Image!</button>
+        <h1 id="outputText">This image displayed is ...</h1>
+    </main>
 </body>
 </html>
