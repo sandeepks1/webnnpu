@@ -7,19 +7,17 @@
 <script type="module">
 import { pipeline } from './transformers.js';
 
-
 let classifier;
 let detectedObjects = new Set();
 
 async function loadModel() {
-  console.log("Loading MobileNet V2 ONNX model (WebNN/NPU)...");
+  console.log("Loading MobileNet V2 ONNX model (WebNN/NPU) from local folder...");
   classifier = await pipeline(
     'image-classification',
-    // This ONNX variant is public and browser-directable:
-    'Xenova/mobilenet-v2-onnx',
+    './mobilenet-v2',    // Path to your model folder (relative to index.html)
     {
-      dtype: 'float32',         // Use float32 for max compatibility
-      device: 'webnn-npu',      // Prefer NPU (WebNN) if available; will fallback
+      dtype: 'float32',  // Use float32 for broad compatibility
+      device: 'webnn-npu',
     }
   );
   console.log("Model Loaded!");
@@ -86,9 +84,9 @@ h1, h2, h3 { color: #333; }
 </head>
 <body>
 <div class="blog-content">
-<h1>WebNN Image Classification – MobileNetV2 (NPU)</h1>
+<h1>WebNN Image Classification – MobileNetV2 (NPU, Local)</h1>
 <p>
-This page uses <b>WebNN</b> and <b>MobileNetV2</b> to run fast image classification directly in your browser using your device's <b>NPU</b> if available.
+This page uses <b>WebNN</b> and a local <b>MobileNetV2 ONNX</b> model to run fast image classification directly in your browser using your device's <b>NPU</b>.
 </p>
 <p>
 Detected objects will be shown as you play the video. After at least 3 unique objects are found, click the button below to reveal them!
