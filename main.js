@@ -1,111 +1,195 @@
-async function classifyImage(pathToImage){ 
-    var imageTensor = await getImageTensorFromPath(pathToImage); // Convert image to a tensor
-    var predictions = await runModel(imageTensor); // Run inference on the tensor
-    console.log(predictions); // Print predictions to console
-    document.getElementById("outputText").innerHTML += predictions[0].name; // Display prediction in HTML
-  }
-  async function getImageTensorFromPath(path, width = 224, height = 224) {
-    var image = await loadImagefromPath(path, width, height); // 1. load the image
-    var imageTensor = imageDataToTensor(image); // 2. convert to tensor
-    return imageTensor; // 3. return the tensor
-  } 
+// ImageNet class labels (top 10 common classes for demo)
+const imagenetClasses = [
+    [0, "tench"], [1, "goldfish"], [2, "great_white_shark"], [3, "tiger_shark"],
+    [4, "hammerhead"], [5, "electric_ray"], [6, "stingray"], [7, "cock"],
+    [8, "hen"], [9, "ostrich"], [10, "brambling"], [11, "goldfinch"],
+    [12, "house_finch"], [13, "junco"], [14, "indigo_bunting"], [15, "robin"],
+    [16, "bulbul"], [17, "jay"], [18, "magpie"], [19, "chickadee"],
+    // Add more classes as needed or use full 1000 ImageNet classes
+];
 
-  async function loadImagefromPath(path, resizedWidth, resizedHeight) {
-    var imageData = await Jimp.read(path).then(imageBuffer => { // Use Jimp to load the image and resize it.
-      return imageBuffer.resize(resizedWidth, resizedHeight);
-    });
+let modelSession = null;
+let isProcessing = false;
 
-    return imageData.bitmap;
-  }
-  function imageDataToTensor(image) {
-    var imageBufferData = image.data;
-    let pixelCount = image.width * image.height;
-    const float32Data = new Float32Array(3 * pixelCount); // Allocate enough space for red/green/blue channels.
+// Initialize when page loads
+window.addEventListener('DOMContentLoaded', async () => {
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const detectionsDiv = document.getElementById('detections');
+    const statusDiv = document.getElementById('status');
 
-    // Loop through the image buffer, extracting the (R, G, B) channels, rearranging from
-    // packed channels to planar channels, and converting to floating point.
-    for (let i = 0; i < pixelCount; i++) {
-      float32Data[pixelCount * 0 + i] = imageBufferData[i * 4 + 0] / 255.0; // Red
-      float32Data[pixelCount * 1 + i] = imageBufferData[i * 4 + 1] / 255.0; // Green
-      float32Data[pixelCount * 2 + i] = imageBufferData[i * 4 + 2] / 255.0; // Blue
-      // Skip the unused alpha channel: imageBufferData[i * 4 + 3].
+    try {
+        statusDiv.textContent = 'Loading model...';
+        await initModel();
+        statusDiv.textContent = 'Model loaded! Processing video frames...';
+
+        // Wait for video to be ready
+        video.addEventListener('loadeddata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            processVideoFrames(video, canvas, detectionsDiv, statusDiv);
+        });
+
+    } catch (error) {
+        statusDiv.textContent = `Error: ${error.message}`;
+        console.error('Initialization error:', error);
     }
-    let dimensions = [1, 3, image.height, image.width];
-    const inputTensor = new ort.Tensor("float32", float32Data, dimensions);
-    return inputTensor;
-  }
-  async function runModel(preprocessedData) { 
-    // Set up environment.
-    ort.env.wasm.numThreads = 1; 
-    ort.env.wasm.simd = true; 
-    // Uncomment for additional information in debug builds:
-    // ort.env.wasm.proxy = true; 
-    // ort.env.logLevel = "verbose";  
-    // ort.env.debug = true; 
+});
 
-    // Configure WebNN.
-    const modelPath = "./mobilenetv2-10.onnx";
-    const devicePreference = "gpu"; // Other options include "npu" and "cpu".
+async function initModel() {
+    // Set up ONNX Runtime environment
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.simd = true;
+
+    const modelPath = './mobilenetv2-10.onnx';
     const options = {
-	    executionProviders: [{ name: "webnn", deviceType: devicePreference, powerPreference: "default" }],
-      freeDimensionOverrides: {"batch": 1, "channels": 3, "height": 224, "width": 224}
-      // The key names in freeDimensionOverrides should map to the real input dim names in the model.
-      // For example, if a model's only key is batch_size, you only need to set
-      // freeDimensionOverrides: {"batch_size": 1}
+        executionProviders: [
+            { 
+                name: 'webnn', 
+                deviceType: 'npu',  // Use NPU
+                powerPreference: 'default' 
+            },
+            'webgpu',  // Fallback to WebGPU
+            'wasm'     // Final fallback to WASM
+        ],
+        freeDimensionOverrides: {
+            "batch": 1, 
+            "channels": 3, 
+            "height": 224, 
+            "width": 224
+        }
     };
-    modelSession = await ort.InferenceSession.create(modelPath, options); 
 
-    // Create feeds with the input name from model export and the preprocessed data. 
-    const feeds = {}; 
-    feeds[modelSession.inputNames[0]] = preprocessedData; 
-    // Run the session inference.
-    const outputData = await modelSession.run(feeds); 
-    // Get output results with the output name from the model export. 
-    const output = outputData[modelSession.outputNames[0]]; 
-    // Get the softmax of the output data. The softmax transforms values to be between 0 and 1.
-    var outputSoftmax = softmax(Array.prototype.slice.call(output.data)); 
-    // Get the top 5 results.
-    var results = imagenetClassesTopK(outputSoftmax, 5);
+    modelSession = await ort.InferenceSession.create(modelPath, options);
+    console.log('Model loaded successfully');
+}
 
-    return results; 
-  }
-  // The softmax transforms values to be between 0 and 1.
+async function processVideoFrames(video, canvas, detectionsDiv, statusDiv) {
+    const ctx = canvas.getContext('2d');
+    let frameCount = 0;
+
+    async function processFrame() {
+        if (video.paused || video.ended) {
+            return;
+        }
+
+        if (!isProcessing) {
+            isProcessing = true;
+            frameCount++;
+
+            try {
+                // Draw current video frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Get image data from canvas
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Convert to tensor and classify
+                const tensor = imageDataToTensor(imageData, 224, 224);
+                const predictions = await runModel(tensor);
+                
+                // Display results
+                displayDetections(predictions, detectionsDiv, frameCount);
+                statusDiv.textContent = `Processing frame ${frameCount}... (using NPU)`;
+                
+            } catch (error) {
+                console.error('Frame processing error:', error);
+                statusDiv.textContent = `Error processing frame: ${error.message}`;
+            }
+            
+            isProcessing = false;
+        }
+
+        // Process next frame (adjust delay as needed for performance)
+        setTimeout(() => requestAnimationFrame(processFrame), 1000); // Process 1 frame per second
+    }
+
+    processFrame();
+}
+
+function imageDataToTensor(imageData, targetWidth, targetHeight) {
+    // Resize image data to target size
+    const resizedData = resizeImageData(imageData, targetWidth, targetHeight);
+    
+    const pixelCount = targetWidth * targetHeight;
+    const float32Data = new Float32Array(3 * pixelCount);
+    
+    // Convert RGBA to RGB and normalize to [0, 1]
+    for (let i = 0; i < pixelCount; i++) {
+        float32Data[pixelCount * 0 + i] = resizedData[i * 4 + 0] / 255.0; // Red
+        float32Data[pixelCount * 1 + i] = resizedData[i * 4 + 1] / 255.0; // Green
+        float32Data[pixelCount * 2 + i] = resizedData[i * 4 + 2] / 255.0; // Blue
+    }
+    
+    const dimensions = [1, 3, targetHeight, targetWidth];
+    return new ort.Tensor('float32', float32Data, dimensions);
+}
+
+function resizeImageData(imageData, targetWidth, targetHeight) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    
+    // Create temporary canvas with original image
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = imageData.width;
+    tempCanvas.height = imageData.height;
+    tempCtx.putImageData(imageData, 0, 0);
+    
+    // Draw resized
+    ctx.drawImage(tempCanvas, 0, 0, targetWidth, targetHeight);
+    
+    return ctx.getImageData(0, 0, targetWidth, targetHeight).data;
+}
+
+async function runModel(preprocessedData) {
+    const feeds = {};
+    feeds[modelSession.inputNames[0]] = preprocessedData;
+    
+    const outputData = await modelSession.run(feeds);
+    const output = outputData[modelSession.outputNames[0]];
+    
+    const outputSoftmax = softmax(Array.prototype.slice.call(output.data));
+    const results = getTopK(outputSoftmax, 5);
+    
+    return results;
+}
+
 function softmax(resultArray) {
-    // Get the largest value in the array.
     const largestNumber = Math.max(...resultArray);
-    // Apply the exponential function to each result item subtracted by the largest number, using reduction to get the
-    // previous result number and the current number to sum all the exponentials results.
-    const sumOfExp = resultArray 
-      .map(resultItem => Math.exp(resultItem - largestNumber)) 
-      .reduce((prevNumber, currentNumber) => prevNumber + currentNumber);
-  
-    // Normalize the resultArray by dividing by the sum of all exponentials.
-    // This normalization ensures that the sum of the components of the output vector is 1.
-    return resultArray.map((resultValue, index) => {
-      return Math.exp(resultValue - largestNumber) / sumOfExp
+    const sumOfExp = resultArray
+        .map(resultItem => Math.exp(resultItem - largestNumber))
+        .reduce((prevNumber, currentNumber) => prevNumber + currentNumber);
+    
+    return resultArray.map((resultValue) => {
+        return Math.exp(resultValue - largestNumber) / sumOfExp;
     });
-  }
-  
-  function imagenetClassesTopK(classProbabilities, k = 5) { 
-    const probs = _.isTypedArray(classProbabilities)
-      ? Array.prototype.slice.call(classProbabilities)
-      : classProbabilities;
-  
-    const sorted = _.reverse(
-      _.sortBy(
-        probs.map((prob, index) => [prob, index]),
-        probIndex => probIndex[0]
-      )
-    );
-  
-    const topK = _.take(sorted, k).map(probIndex => {
-      const iClass = imagenetClasses[probIndex[1]]
-      return {
-        id: iClass[0],
-        index: parseInt(probIndex[1].toString(), 10),
-        name: iClass[1].replace(/_/g, " "),
-        probability: probIndex[0]
-      }
+}
+
+function getTopK(classProbabilities, k = 5) {
+    const probs = Array.prototype.slice.call(classProbabilities);
+    
+    const sorted = probs
+        .map((prob, index) => [prob, index])
+        .sort((a, b) => b[0] - a[0])
+        .slice(0, k);
+    
+    return sorted.map(([prob, index]) => {
+        const className = imagenetClasses[index] ? imagenetClasses[index][1] : `class_${index}`;
+        return {
+            id: index,
+            name: className.replace(/_/g, ' '),
+            probability: prob
+        };
     });
-    return topK;
-  }
+}
+
+function displayDetections(predictions, detectionsDiv, frameCount) {
+    detectionsDiv.innerHTML = predictions.map(pred => `
+        <div class="detection">
+            <strong>${pred.name}</strong>: ${(pred.probability * 100).toFixed(2)}%
+        </div>
+    `).join('');
+}
